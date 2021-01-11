@@ -1,7 +1,6 @@
-import logging, os, sys, subprocess, requests, json, random, string
+import telegram, logging, os, requests, json, random, string
 from functools import wraps
-import telegram
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
 
 # Enable logging
@@ -26,7 +25,7 @@ headers = {
 
 def restricted(func):
     @wraps(func)
-    def wrapped(bot, update, *args, **kwargs):
+    def wrapped(bot, update, context: CallbackContext, *args, **kwargs):
         user_id = update.effective_user.id
         if user_id not in ADMINS:
             print("Unauthorized access denied for {}.".format(user_id))
@@ -40,13 +39,15 @@ def restricted(func):
 @restricted
 
 def build_menu(bot, update):
-    button_list = [
-    ["/create_CX21"],
-    ["/delete"],
-    ["/list"]
-    ]
+    button_list = [ "/list", "/delete" ]
+    for i in base_requests()["types"]:
+        button_list.append(i["name"])
+    #["/create"],
+    #["/delete"],
+    #["/list"]
+    #]
     reply_markup = telegram.ReplyKeyboardMarkup(button_list, resize_keyboard=True)
-    update.message.reply_text('use /create_CX21 /delete or /list', reply_markup=reply_markup)
+    update.message.reply_text('use /create /delete or /list', reply_markup=reply_markup)
 
 def random_name():
     return ''.join(random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(12))
@@ -58,25 +59,34 @@ def base_requests():
     try:
         info_req = requests.get(f'{ENDPOINT}/clients/current', headers=headers)
         list_req = requests.get(f'{ENDPOINT}/servers', headers=headers)
+        type_req = requests.get(f'{ENDPOINT}hetzner/server_types', headers=headers)
+        type_rsp = json.loads(type_req.text)
         info_rsp = json.loads(info_req.text)
         list_rsp = json.loads(list_req.text)
         balance = f'{info_rsp["deposit"]}'
         servers = []
+        types = []
         for i in list_rsp:
             servers.append(i)
+        for i in type_rsp:
+            types.append(i)
         return {
             "balance" : balance,
             "servers" : servers,
+            "types"   : types,
         }
     except:
         return f'err in base requests'
 
-def create_CX21(bot, update):
+
+
+def create(bot, update):
+    
     try:
         server_name = random_name()
         data = {'name': server_name, 'sshKeys': [], 'image': IMAGE_ID, 'serverType': 3, 'datacenter': 3, 'options': {}}
-        create_req = requests.post(f'{ENDPOINT}/servers', headers=headers, data=json.dumps(data))
-        update.effective_message.reply_text(base_requests())
+        requests.post(f'{ENDPOINT}/servers', headers=headers, data=json.dumps(data))
+        update.effective_message.reply_text(base_requests()["servers"])
     except:
         update.effective_message.reply_text('err')
 
@@ -115,7 +125,8 @@ if __name__ == "__main__":
     # Add handlers
     dp.add_handler(CommandHandler('delete', delete))
     dp.add_handler(CommandHandler('list', list))
-    dp.add_handler(CommandHandler('create_CX21', create_CX21))
+    dp.add_handler(CommandHandler('create', create))
+
     dp.add_handler(MessageHandler(Filters.text, build_menu))
     dp.add_error_handler(error)
 
